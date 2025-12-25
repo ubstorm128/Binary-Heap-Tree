@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>LitHaven</title>
+    <style>
+        :root {
+            --bg: #0f1720;
+            --card: #1f2937;
+            --accent: #3b82f6;
+            --text: #e6eef8;
+        }
+
+        body {
+            font-family: Inter, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 12px;
+        }
+
+        h1 {
+            margin: 0 0 6px 0;
+            font-size: 26px;
+        }
+
+        p.lead {
+            margin: 0;
+            color: rgba(230, 238, 248, 0.75);
+            font-size: 13px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        input,
+        button,
+        select {
+            padding: 8px 10px;
+            border-radius: 8px;
+            border: none;
+            background: var(--card);
+            color: var(--text);
+        }
+
+        input[type="number"] {
+            width: 140px;
+        }
+
+        .small {
+            padding: 6px 8px;
+            font-size: 14px;
+        }
+
+        .tree-wrap {
+            position: relative;
+            width: 100%;
+            max-width: 1100px;
+            margin-top: 28px;
+            min-height: 320px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
+            border-radius: 12px;
+            padding: 18px;
+            box-sizing: border-box;
+            overflow: visible;
+        }
+
+        #connectors {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            overflow: visible;
+        }
+
+        .level {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin: 22px 0;
+            flex-wrap: nowrap;
+        }
+
+        .node {
+            min-width: 140px;
+            max-width: 180px;
+            padding: 12px;
+            background: linear-gradient(180deg, var(--accent), #2563eb);
+            border-radius: 12px;
+            color: white;
+            text-align: center;
+            box-shadow: 0 6px 18px rgba(10, 15, 30, 0.6);
+            position: relative;
+            white-space: normal;
+            font-size: 13px;
+            line-height: 1.1;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .node:hover {
+            transform: scale(1.08);
+            box-shadow: 0 10px 28px rgba(59, 130, 246, 0.5);
+        }
+
+        .node .title {
+            font-weight: 700;
+            display: block;
+            margin-bottom: 6px;
+        }
+
+        .node .meta {
+            font-size: 12px;
+            opacity: 0.95;
+        }
+
+        .muted {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 13px;
+        }
+
+        .queue-list {
+            width: 100%;
+            max-width: 1100px;
+            margin-top: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .queue-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 14px;
+            background: var(--card);
+            border-radius: 8px;
+            cursor: pointer;
+            margin-bottom: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .queue-row:hover {
+            background: #283548;
+            transform: translateX(4px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+        }
+
+        .queue-meta { font-size: 13px; color: rgba(230,238,248,0.9); }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>Book Order Priority System — Tree View</h1>
+        <p class="lead">Priority levels: high &gt; medium &gt; low. Tie-breaker: quantity → FIFO.</p>
+    </header>
+
+    <div class="controls">
+        <input id="bookName" placeholder="Book name" class="small" />
+        <input id="quantity" type="number" placeholder="Quantity (optional)" class="small" min="0" />
+        <select id="prioritySel" class="small">
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+        </select>
+        <button id="addBtn" class="small">Add Book</button>
+        <button id="removeBtn" class="small">Remove Highest</button>
+        <button id="clearBtn" class="small">Clear</button>
+    </div>
+
+    <div class="tree-wrap" id="treeWrap">
+        <svg id="connectors" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div id="levelsContainer"></div>
+    </div>
+
+    <div class="queue-list" id="queueList">
+        <div style="width:100%; max-width:1100px; display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+            <strong style="font-size:15px">Queued Books</strong>
+            <span class="muted" style="font-size:12px">Click Delete to remove a specific book</span>
+        </div>
+        <div id="listContainer"></div>
+    </div>
+
+    <script type="module">
+        import PriorityQueue from './PriorityQueue.js';
+
+        const pq = new PriorityQueue();
+        const levelsContainer = document.getElementById('levelsContainer');
+        const svg = document.getElementById('connectors');
+        const wrap = document.getElementById('treeWrap');
+
+        function groupByLevel(arr) {
+            const levels = [];
+            for (let i = 0; i < arr.length; i++) {
+                const level = Math.floor(Math.log2(i + 1));
+                if (!levels[level]) levels[level] = [];
+                levels[level].push({ node: arr[i], index: i });
+            }
+            return levels;
+        }
+
+        function clearSVG() {
+            while (svg.firstChild) svg.removeChild(svg.firstChild);
+        }
+
+        function drawConnectors() {
+            clearSVG();
+            const wrapRect = wrap.getBoundingClientRect();
+            svg.setAttribute('width', wrap.clientWidth);
+            svg.setAttribute('height', wrap.clientHeight);
+            svg.setAttribute('viewBox', `0 0 ${wrap.clientWidth} ${wrap.clientHeight}`);
+            const nodeEls = wrap.querySelectorAll('.node[data-idx]');
+            const pos = {};
+            nodeEls.forEach(el => {
+                const idx = parseInt(el.getAttribute('data-idx'), 10);
+                const r = el.getBoundingClientRect();
+                const x = r.left - wrapRect.left + r.width / 2;
+                const y = r.top - wrapRect.top + r.height / 2;
+                pos[idx] = { x, y };
+            });
+
+            const ns = "http://www.w3.org/2000/svg";
+            Object.keys(pos).forEach(key => {
+                const i = Number(key);
+                const parent = pos[i];
+                if (!parent) return;
+                [2 * i + 1, 2 * i + 2].forEach(childIdx => {
+                    const child = pos[childIdx];
+                    if (!child) return;
+                    const dx = child.x - parent.x;
+                    const dy = child.y - parent.y;
+                    const hx = parent.x + dx * 0.15;
+                    const hy = parent.y + dy * 0.15;
+                    const gx = parent.x + dx * 0.85;
+                    const gy = parent.y + dy * 0.85;
+                    const path = document.createElementNS(ns, 'path');
+                    path.setAttribute('d', `M ${parent.x} ${parent.y} C ${hx} ${hy} ${gx} ${gy} ${child.x} ${child.y}`);
+                    path.setAttribute('stroke', 'rgba(255,255,255,0.16)');
+                    path.setAttribute('stroke-width', '2');
+                    path.setAttribute('fill', 'none');
+                    svg.appendChild(path);
+                });
+            });
+        }
+
+        function renderTree() {
+            levelsContainer.innerHTML = '';
+            const arr = pq.heap;
+            if (!arr.length) {
+                const empty = document.createElement('div');
+                empty.style.padding = '28px';
+                empty.className = 'muted';
+                empty.textContent = 'Heap is empty — add some books';
+                levelsContainer.appendChild(empty);
+                clearSVG();
+                return;
+            }
+
+            const levels = groupByLevel(arr);
+            levels.forEach((lvlArr) => {
+                const row = document.createElement('div');
+                row.className = 'level';
+                lvlArr.forEach(item => {
+                    const el = document.createElement('div');
+                    el.className = 'node';
+                    el.setAttribute('data-idx', item.index);
+                    const title = document.createElement('span');
+                    title.className = 'title';
+                    const name = (item.node.payload && item.node.payload.book) ? item.node.payload.book : '(no name)';
+                    title.textContent = name;
+                    const meta = document.createElement('div');
+                    meta.className = 'meta';
+                    const q = (item.node.payload && typeof item.node.payload.quantity === 'number') ? item.node.payload.quantity : '-';
+                    meta.textContent = `Priority: ${item.node.priority}  •  Qty: ${q}`;
+                    el.appendChild(title);
+                    el.appendChild(meta);
+                    row.appendChild(el);
+                });
+                levelsContainer.appendChild(row);
+            });
+
+            requestAnimationFrame(() => {
+                setTimeout(drawConnectors, 20);
+            });
+            renderList();
+        }
+
+        function renderList() {
+            const container = document.getElementById('listContainer');
+            container.innerHTML = '';
+            const arr = pq.toSortedArray();
+
+            if (!arr.length) {
+                const empty = document.createElement('div');
+                empty.className = 'muted';
+                empty.style.padding = '12px';
+                empty.textContent = 'No books queued';
+                container.appendChild(empty);
+                return;
+            }
+
+            arr.forEach(node => {
+                const row = document.createElement('div');
+                row.className = 'queue-row';
+
+                const left = document.createElement('div');
+                left.style.display = 'flex';
+                left.style.flexDirection = 'column';
+                const title = document.createElement('strong');
+                title.textContent = node.payload.book ?? '(no name)';
+                const meta = document.createElement('div');
+                meta.className = 'queue-meta';
+                meta.textContent = `Priority: ${node.priority}  •  Qty: ${node.payload.quantity ?? '-'} `;
+                left.appendChild(title);
+                left.appendChild(meta);
+
+                const actions = document.createElement('div');
+                const del = document.createElement('button');
+                del.className = 'small';
+                del.textContent = 'Delete';
+                del.addEventListener('click', (e) => {
+                    // prevent row click from also firing
+                    e.stopPropagation();
+                    if (!confirm(`Remove '${node.payload.book}' from queue?`)) return;
+                    pq.removeBySeq(node.seq);
+                    renderTree();
+                    renderList();
+                });
+                // clicking the row sets the priority select to this node's priority
+                row.addEventListener('click', () => {
+                    const sel = document.getElementById('prioritySel');
+                    if (sel) {
+                        sel.value = node.priority;
+                        // ensure the displayed value updates reliably
+                        sel.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                });
+                actions.appendChild(del);
+
+                row.appendChild(left);
+                row.appendChild(actions);
+                container.appendChild(row);
+            });
+        }
+
+        document.getElementById('addBtn').addEventListener('click', () => {
+            const name = document.getElementById('bookName').value.trim();
+            const quantityRaw = document.getElementById('quantity').value;
+            const prioritySel = document.getElementById('prioritySel').value;
+
+            if (!name) return alert('Enter a book name');
+
+            const payload = { book: name };
+            if (quantityRaw !== '') payload.quantity = Number(quantityRaw);
+
+            const pr = prioritySel || 'medium';
+
+            pq.enqueue(payload, pr);
+
+            document.getElementById('bookName').value = '';
+            document.getElementById('quantity').value = '';
+            // keep the user's selected priority (do not reset)
+
+            renderTree();
+        });
+
+        document.getElementById('removeBtn').addEventListener('click', () => {
+            const top = pq.dequeue();
+            if (!top) alert('Heap is empty');
+            else alert(`Removed: ${top.payload.book} (priority: ${top.priority}, qty: ${top.payload.quantity ?? '-'})`);
+            renderTree();
+        });
+
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            pq.clear();
+            renderTree();
+        });
+
+        window.addEventListener('resize', () => {
+            requestAnimationFrame(drawConnectors);
+        });
+
+        renderTree();
+    </script>
+</body>
+
+</html>
